@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/fondo_base">
+
+    <ImageView
+        android:id="@+id/fondo"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:importantForAccessibility="no" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/sombra" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:paddingLeft="56dp"
+        android:paddingRight="56dp"
+        android:paddingTop="36dp"
+        android:paddingBottom="40dp">
+
+        <!-- Arriba: hora y fecha a la izquierda, clima a la derecha -->
+        <RelativeLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_alignParentLeft="true"
+                android:orientation="vertical">
+
+                <TextClock
+                    android:id="@+id/hora"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:format12Hour="HH:mm"
+                    android:format24Hour="HH:mm"
+                    android:textColor="#FFFFFF"
+                    android:textSize="64sp"
+                    android:fontFamily="sans-serif-light"
+                    android:shadowColor="#80000000"
+                    android:shadowRadius="8" />
+
+                <TextClock
+                    android:id="@+id/fecha"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:format12Hour="EEEE d 'de' MMMM"
+                    android:format24Hour="EEEE d 'de' MMMM"
+                    android:textColor="#DDFFFFFF"
+                    android:textSize="20sp"
+                    android:shadowColor="#80000000"
+                    android:shadowRadius="6" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_alignParentRight="true"
+                android:gravity="right"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/temperatura"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="#FFFFFF"
+                    android:textSize="44sp"
+                    android:fontFamily="sans-serif-light"
+                    android:shadowColor="#80000000"
+                    android:shadowRadius="8" />
+
+                <TextView
+                    android:id="@+id/clima"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="#DDFFFFFF"
+                    android:textSize="16sp"
+                    android:shadowColor="#80000000"
+                    android:shadowRadius="6" />
+            </LinearLayout>
+        </RelativeLayout>
+
+        <Space
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
+        <LinearLayout
+            android:id="@+id/fila1"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:orientation="horizontal"
+            android:clipChildren="false" />
+
+        <LinearLayout
+            android:id="@+id/fila2"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:orientation="horizontal"
+            android:clipChildren="false" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/credito"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|right"
+        android:layout_margin="12dp"
+        android:maxWidth="420dp"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:textColor="#88FFFFFF"
+        android:textSize="10sp" />
+
+    <!-- Capa del modo noche: negra y transparente de día -->
+    <View
+        android:id="@+id/noche"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#000000"
+        android:alpha="0" />
+</FrameLayout>
