@@ -5,3 +5,5 @@ Pantalla de inicio simple para Android TV: fondo del día, reloj, clima, apps de
 Instalar en la tele con la app Downloader: `ramiroagi.github.io/tv/i.apk`
 
 Compilar: `bash build.sh` (deja el instalador en `salida/Inicio.apk`).
+
+Fotos: Cape Otway (Dietmar Rabich, CC BY-SA 4.0) y Hong Kong de noche (Alex Wong, CC0), vía Wikimedia Commons.

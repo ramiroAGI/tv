@@ -30,19 +30,20 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import android.text.SpannableStringBuilder;
+import android.text.Spanned;
+import android.text.style.ForegroundColorSpan;
+
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.FileOutputStream;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.text.SimpleDateFormat;
+import java.text.NumberFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
-import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 
@@ -54,10 +55,21 @@ public class MainActivity extends Activity {
     static final double LATITUD = -34.61;
     static final double LONGITUD = -58.38;
 
-    // Modo noche: entre estas horas la pantalla se oscurece
-    static final int NOCHE_DESDE = 22;
+    // Modo noche: entre estas horas cambia el fondo y la pantalla se oscurece
+    static final int NOCHE_DESDE = 20;
     static final int NOCHE_HASTA = 7;
-    static final float NOCHE_OSCURIDAD = 0.5f;
+    static final float NOCHE_OSCURIDAD = 0.35f;
+
+    // Cotizaciones (de día; de noche se ocultan para desconectar). false = no mostrarlas nunca
+    static final boolean MOSTRAR_MERCADO = true;
+    static final String[][] COTIZACIONES = {
+            // símbolo en Yahoo, nombre en pantalla, decimales
+            {"QQQ", "QQQ", "2"},
+            {"^MERV", "MERVAL", "0"},
+    };
+
+    static final String CREDITO_DIA = "Cape Otway, Australia · Foto: Dietmar Rabich, CC BY-SA 4.0";
+    static final String CREDITO_NOCHE = "Hong Kong de noche · Foto: Alex Wong, CC0";
 
     // Apps: nombre, paquetes posibles (cambian según la versión), palabras para buscarla por nombre
     static final String[][] APPS = {
@@ -75,10 +87,11 @@ public class MainActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private SharedPreferences prefs;
     private ImageView fondo;
-    private TextView temperatura, clima, credito;
+    private TextView temperatura, clima, mercado, credito;
     private View noche;
     private LinearLayout fila1, fila2;
     private boolean faltanApps;
+    private Boolean modoNoche; // null hasta la primera vez
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -88,15 +101,16 @@ public class MainActivity extends Activity {
         fondo = findViewById(R.id.fondo);
         temperatura = findViewById(R.id.temperatura);
         clima = findViewById(R.id.clima);
+        mercado = findViewById(R.id.mercado);
         credito = findViewById(R.id.credito);
         noche = findViewById(R.id.noche);
         fila1 = findViewById(R.id.fila1);
         fila2 = findViewById(R.id.fila2);
 
         armarBotones();
-        cargarFondo();
-        handler.post(actualizarClima);
         handler.post(actualizarNoche);
+        handler.post(actualizarClima);
+        if (MOSTRAR_MERCADO) handler.post(actualizarMercado);
     }
 
     @Override
@@ -133,6 +147,8 @@ public class MainActivity extends Activity {
         List<ResolveInfo> instaladas = listarApps();
 
         List<View> botones = new ArrayList<>();
+        botones.add(crearBoton("PlayStation", null, null, colorPlay(),
+                v -> abrirPlay(false), v -> { abrirPlay(true); return true; }, false));
         for (String[] app : APPS) {
             final String nombre = app[0];
             final String paquete = buscarPaquete(app[1].split(","), app[2].split(","), instaladas);
@@ -147,8 +163,6 @@ public class MainActivity extends Activity {
                         v -> abrirTienda(sugerido), null, true));
             }
         }
-        botones.add(crearBoton("PlayStation", null, null, colorPlay(),
-                v -> abrirPlay(false), v -> { abrirPlay(true); return true; }, false));
 
         for (int i = 0; i < botones.size(); i++) {
             (i < 4 ? fila1 : fila2).addView(botones.get(i));
@@ -365,46 +379,26 @@ public class MainActivity extends Activity {
         }
     }
 
-    // ---------------- Fondo (foto del día de Bing) ----------------
+    // ---------------- Fondo: mar de día, ciudad de noche ----------------
 
-    private void cargarFondo() {
+    private void cargarFondo(final boolean deNoche) {
         new Thread(() -> {
-            File archivo = new File(getFilesDir(), "fondo.jpg");
-            if (archivo.exists()) mostrarFondo(archivo);
-
-            String hoy = new SimpleDateFormat("yyyyMMdd", Locale.ROOT).format(new Date());
-            if (hoy.equals(prefs.getString("fondo_dia", "")) && archivo.exists()) return;
-            try {
-                JSONObject img = new JSONObject(bajarTexto(
-                        "https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1&mkt=es-ES"))
-                        .getJSONArray("images").getJSONObject(0);
-                File tmp = new File(getFilesDir(), "fondo.tmp");
-                bajarArchivo("https://www.bing.com" + img.getString("urlbase") + "_1920x1080.jpg", tmp);
-                if (tmp.renameTo(archivo)) {
-                    prefs.edit().putString("fondo_dia", hoy)
-                            .putString("fondo_credito", img.optString("copyright")).apply();
-                    mostrarFondo(archivo);
-                }
-            } catch (Exception ignored) {
-                // Sin internet: queda el fondo anterior o el degradé
-            }
+            BitmapFactory.Options o = new BitmapFactory.Options();
+            o.inPreferredConfig = Bitmap.Config.RGB_565; // la mitad de memoria; en una foto no se nota
+            o.inScaled = false;
+            if (getResources().getDisplayMetrics().widthPixels < 1600) o.inSampleSize = 2;
+            final Bitmap bmp = BitmapFactory.decodeResource(getResources(),
+                    deNoche ? R.drawable.fondo_noche : R.drawable.fondo_dia, o);
+            if (bmp == null) return;
+            runOnUiThread(() -> {
+                fondo.animate().alpha(0f).setDuration(fondo.getDrawable() == null ? 0 : 800)
+                        .withEndAction(() -> {
+                            fondo.setImageBitmap(bmp);
+                            credito.setText(deNoche ? CREDITO_NOCHE : CREDITO_DIA);
+                            fondo.animate().alpha(1f).setDuration(800).start();
+                        }).start();
+            });
         }).start();
-    }
-
-    private void mostrarFondo(File archivo) {
-        BitmapFactory.Options o = new BitmapFactory.Options();
-        o.inPreferredConfig = Bitmap.Config.RGB_565; // la mitad de memoria; en una foto no se nota
-        int anchoPantalla = getResources().getDisplayMetrics().widthPixels;
-        if (anchoPantalla < 1600) o.inSampleSize = 2;
-        final Bitmap bmp = BitmapFactory.decodeFile(archivo.getPath(), o);
-        final String txt = prefs.getString("fondo_credito", "");
-        if (bmp == null) return;
-        runOnUiThread(() -> {
-            fondo.setImageBitmap(bmp);
-            fondo.setAlpha(0f);
-            fondo.animate().alpha(1f).setDuration(600).start();
-            credito.setText(txt);
-        });
     }
 
     // ---------------- Clima (Open-Meteo, sin cuenta) ----------------
@@ -456,11 +450,64 @@ public class MainActivity extends Activity {
         public void run() {
             int h = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
             boolean esNoche = h >= NOCHE_DESDE || h < NOCHE_HASTA;
-            float destino = esNoche ? NOCHE_OSCURIDAD : 0f;
-            if (noche.getAlpha() != destino) noche.animate().alpha(destino).setDuration(2000).start();
+            if (modoNoche == null || modoNoche != esNoche) {
+                modoNoche = esNoche;
+                cargarFondo(esNoche);
+                noche.animate().alpha(esNoche ? NOCHE_OSCURIDAD : 0f).setDuration(2000).start();
+                mercado.setVisibility(esNoche || !MOSTRAR_MERCADO ? View.GONE : View.VISIBLE);
+            }
             handler.postDelayed(this, 60 * 1000);
         }
     };
+
+    // ---------------- Cotizaciones (Yahoo Finance) ----------------
+
+    private final Runnable actualizarMercado = new Runnable() {
+        @Override
+        public void run() {
+            if (!Boolean.TRUE.equals(modoNoche)) {
+                new Thread(() -> {
+                    final SpannableStringBuilder txt = new SpannableStringBuilder();
+                    for (String[] c : COTIZACIONES) {
+                        try {
+                            double[] precios = ultimosCierres(c[0]);
+                            double variacion = (precios[1] / precios[0] - 1) * 100;
+                            if (txt.length() > 0) txt.append("     ");
+                            txt.append(c[1]).append(" ");
+                            NumberFormat nf = NumberFormat.getNumberInstance(new Locale("es", "AR"));
+                            int dec = Integer.parseInt(c[2]);
+                            nf.setMinimumFractionDigits(dec);
+                            nf.setMaximumFractionDigits(dec);
+                            txt.append(nf.format(precios[1])).append(" ");
+                            int ini = txt.length();
+                            txt.append(String.format(new Locale("es", "AR"), "%s%.1f%%",
+                                    variacion >= 0 ? "▲" : "▼", Math.abs(variacion)));
+                            txt.setSpan(new ForegroundColorSpan(variacion >= 0 ? 0xFF7CE38B : 0xFFFF7B72),
+                                    ini, txt.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                        } catch (Exception ignored) {
+                            // Si una falla, se muestran las demás
+                        }
+                    }
+                    if (txt.length() > 0) runOnUiThread(() -> mercado.setText(txt));
+                }).start();
+            }
+            handler.postDelayed(this, 10 * 60 * 1000);
+        }
+    };
+
+    /** Devuelve {cierre anterior, último precio} a partir de las velas diarias. */
+    private static double[] ultimosCierres(String simbolo) throws Exception {
+        JSONObject j = new JSONObject(bajarTexto("https://query1.finance.yahoo.com/v8/finance/chart/"
+                + Uri.encode(simbolo) + "?range=5d&interval=1d"));
+        JSONArray cierres = j.getJSONObject("chart").getJSONArray("result").getJSONObject(0)
+                .getJSONObject("indicators").getJSONArray("quote").getJSONObject(0).getJSONArray("close");
+        List<Double> validos = new ArrayList<>();
+        for (int i = 0; i < cierres.length(); i++) {
+            if (!cierres.isNull(i)) validos.add(cierres.getDouble(i));
+        }
+        if (validos.size() < 2) throw new Exception("sin datos");
+        return new double[]{validos.get(validos.size() - 2), validos.get(validos.size() - 1)};
+    }
 
     // ---------------- Utilidades ----------------
 
@@ -480,17 +527,6 @@ public class MainActivity extends Activity {
             int n;
             while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
             return out.toString("UTF-8");
-        } finally {
-            c.disconnect();
-        }
-    }
-
-    private static void bajarArchivo(String url, File destino) throws Exception {
-        HttpURLConnection c = conectar(url);
-        try (InputStream in = c.getInputStream(); OutputStream out = new FileOutputStream(destino)) {
-            byte[] buf = new byte[16384];
-            int n;
-            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
         } finally {
             c.disconnect();
         }
