@@ -22,7 +22,9 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.TypedValue;
+import android.provider.Settings;
 import android.view.Gravity;
+import android.view.KeyEvent;
 import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
@@ -55,10 +57,15 @@ public class MainActivity extends Activity {
     static final double LATITUD = -34.61;
     static final double LONGITUD = -58.38;
 
-    // Modo noche: entre estas horas cambia el fondo y la pantalla se oscurece
+    // Modo noche: empieza con el atardecer real y termina con el amanecer (datos del clima).
+    // Si todavía no hay datos, se usan estas horas de reserva.
     static final int NOCHE_DESDE = 20;
     static final int NOCHE_HASTA = 7;
     static final float NOCHE_OSCURIDAD = 0.35f;
+
+    // Modo "solo fondo": sin tocar el control este tiempo, los botones bajan y quedan asomando
+    static final int ESCONDER_BOTONES_SEGUNDOS = 30;
+    static final int BOTONES_ASOMAN_DP = 30;
 
     // Cotizaciones (de día; de noche se ocultan para desconectar). false = no mostrarlas nunca
     static final boolean MOSTRAR_MERCADO = true;
@@ -89,8 +96,10 @@ public class MainActivity extends Activity {
     private ImageView fondo;
     private TextView temperatura, clima, mercado, credito;
     private View noche;
-    private LinearLayout fila1, fila2;
+    private LinearLayout botonera, fila1, fila2;
     private boolean faltanApps;
+    private boolean botonesEscondidos;
+    private boolean preguntoVigia;
     private Boolean modoNoche; // null hasta la primera vez
 
     @Override
@@ -104,13 +113,21 @@ public class MainActivity extends Activity {
         mercado = findViewById(R.id.mercado);
         credito = findViewById(R.id.credito);
         noche = findViewById(R.id.noche);
+        botonera = findViewById(R.id.botonera);
         fila1 = findViewById(R.id.fila1);
         fila2 = findViewById(R.id.fila2);
+
+        findViewById(R.id.todas).setOnClickListener(v -> mostrarTodasLasApps());
+        findViewById(R.id.ajustes).setOnClickListener(v -> abrirAjustes());
+        for (int id : new int[]{R.id.todas, R.id.ajustes}) {
+            findViewById(id).setOnFocusChangeListener((v, foco) -> v.setAlpha(foco ? 1f : 0.6f));
+        }
 
         armarBotones();
         handler.post(actualizarNoche);
         handler.post(actualizarClima);
         if (MOSTRAR_MERCADO) handler.post(actualizarMercado);
+        handler.post(buscarActualizacion);
     }
 
     @Override
@@ -118,14 +135,151 @@ public class MainActivity extends Activity {
         super.onResume();
         // Si faltaba alguna app y la instalaron, rearmar los botones
         if (faltanApps) armarBotones();
+        mostrarBotones(false);
+        if (!preguntoVigia && !vigiaActiva() && !prefs.getBoolean("vigia_no_preguntar", false)) {
+            preguntoVigia = true;
+            new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                    .setTitle("¿Usar esta pantalla al apretar Inicio?")
+                    .setMessage("Para eso hay que activar \"Inicio: botón Inicio\" en Accesibilidad. "
+                            + "Android va a mostrar un aviso general; esta app solo detecta cuándo aparece "
+                            + "la pantalla de Google. Se desactiva en el mismo lugar cuando quieras.")
+                    .setPositiveButton("Activar", (d, w) -> abrirAccesibilidad())
+                    .setNeutralButton("No volver a preguntar",
+                            (d, w) -> prefs.edit().putBoolean("vigia_no_preguntar", true).apply())
+                    .setNegativeButton("Ahora no", null)
+                    .show();
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        handler.removeCallbacks(esconderBotones);
+        super.onPause();
     }
 
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         // Al apretar "Inicio" en el control, volver al primer botón
+        mostrarBotones(false);
         if (fila1.getChildCount() > 0) fila1.getChildAt(0).requestFocus();
     }
+
+    // La tecla que muestra/esconde los botones no tiene que hacer nada más (ni al mantenerla ni al soltarla)
+    private boolean tragarHastaSoltar;
+
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent e) {
+        if (tragarHastaSoltar) {
+            if (e.getAction() == KeyEvent.ACTION_UP) tragarHastaSoltar = false;
+            return true;
+        }
+        if (e.getAction() == KeyEvent.ACTION_DOWN) {
+            if (botonesEscondidos) {
+                mostrarBotones(true);
+                tragarHastaSoltar = true;
+                return true;
+            }
+            if (e.getKeyCode() == KeyEvent.KEYCODE_DPAD_DOWN && fila2.hasFocus()) {
+                esconderBotones.run();
+                tragarHastaSoltar = true;
+                return true;
+            }
+            reiniciarEspera();
+        }
+        return super.dispatchKeyEvent(e);
+    }
+
+    // ---------------- Modo "solo fondo" ----------------
+
+    private final Runnable esconderBotones = new Runnable() {
+        @Override
+        public void run() {
+            if (botonesEscondidos || botonera.getHeight() == 0) return;
+            botonesEscondidos = true;
+            float bajar = botonera.getHeight() + ((View) botonera.getParent()).getPaddingBottom() - dp(BOTONES_ASOMAN_DP);
+            botonera.animate().translationY(bajar).alpha(0.6f).setDuration(900).start();
+        }
+    };
+
+    private void mostrarBotones(boolean animar) {
+        botonesEscondidos = false;
+        botonera.animate().cancel();
+        if (animar) {
+            botonera.animate().translationY(0).alpha(1f).setDuration(300).start();
+        } else {
+            botonera.setTranslationY(0);
+            botonera.setAlpha(1f);
+        }
+        reiniciarEspera();
+    }
+
+    private void reiniciarEspera() {
+        handler.removeCallbacks(esconderBotones);
+        handler.postDelayed(esconderBotones, ESCONDER_BOTONES_SEGUNDOS * 1000L);
+    }
+
+    // ---------------- Accesibilidad (botón Inicio) ----------------
+
+    private boolean vigiaActiva() {
+        String activos = Settings.Secure.getString(getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+        return activos != null && activos.contains(getPackageName() + "/");
+    }
+
+    private void abrirAccesibilidad() {
+        try {
+            startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+            aviso("Buscá \"Inicio: botón Inicio\" y activalo");
+        } catch (Exception e) {
+            aviso("Andá a Ajustes → Accesibilidad → Inicio: botón Inicio");
+        }
+    }
+
+    // ---------------- Todas las apps y ajustes ----------------
+
+    private void mostrarTodasLasApps() {
+        final PackageManager pm = getPackageManager();
+        final List<ResolveInfo> apps = pm.queryIntentActivities(
+                new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER), 0);
+        final List<String> paquetes = new ArrayList<>();
+        final List<String> nombres = new ArrayList<>();
+        for (ResolveInfo r : apps) {
+            if (r.activityInfo.packageName.equals(getPackageName())) continue;
+            if (paquetes.contains(r.activityInfo.packageName)) continue;
+            paquetes.add(r.activityInfo.packageName);
+            nombres.add(r.loadLabel(pm).toString());
+        }
+        // Orden alfabético
+        List<Integer> orden = new ArrayList<>();
+        for (int i = 0; i < nombres.size(); i++) orden.add(i);
+        java.util.Collections.sort(orden, (a, b) -> nombres.get(a).compareToIgnoreCase(nombres.get(b)));
+        final String[] etiquetas = new String[orden.size()];
+        final String[] pkgs = new String[orden.size()];
+        for (int i = 0; i < orden.size(); i++) {
+            etiquetas[i] = nombres.get(orden.get(i));
+            pkgs[i] = paquetes.get(orden.get(i));
+        }
+        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("Todas las apps")
+                .setItems(etiquetas, (d, cual) -> abrirApp(pkgs[cual]))
+                .show();
+    }
+
+    private void abrirAjustes() {
+        try {
+            startActivity(new Intent(Settings.ACTION_SETTINGS));
+        } catch (Exception e) {
+            aviso("No pude abrir los ajustes");
+        }
+    }
+
+    private final Runnable buscarActualizacion = new Runnable() {
+        @Override
+        public void run() {
+            Actualizador.revisar(MainActivity.this);
+            handler.postDelayed(this, 6 * 60 * 60 * 1000L);
+        }
+    };
 
     @Override
     public void onBackPressed() {
@@ -411,10 +565,16 @@ public class MainActivity extends Activity {
                     JSONObject j = new JSONObject(bajarTexto(String.format(Locale.ROOT,
                             "https://api.open-meteo.com/v1/forecast?latitude=%.2f&longitude=%.2f"
                                     + "&current=temperature_2m,weather_code,is_day"
-                                    + "&daily=temperature_2m_max,temperature_2m_min"
+                                    + "&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset"
                                     + "&timezone=auto&forecast_days=1", LATITUD, LONGITUD)));
                     JSONObject ahora = j.getJSONObject("current");
                     JSONObject dia = j.getJSONObject("daily");
+                    // Vienen como "2026-10-26T19:43": guardar los minutos del día
+                    prefs.edit()
+                            .putInt("amanecer", minutosDelDia(dia.getJSONArray("sunrise").getString(0)))
+                            .putInt("atardecer", minutosDelDia(dia.getJSONArray("sunset").getString(0)))
+                            .apply();
+                    runOnUiThread(MainActivity.this::revisarNoche);
                     final String temp = Math.round(ahora.getDouble("temperature_2m")) + "°";
                     final String desc = describirClima(ahora.getInt("weather_code"), ahora.getInt("is_day") == 1)
                             + "   ↑" + Math.round(dia.getJSONArray("temperature_2m_max").getDouble(0)) + "°"
@@ -448,17 +608,29 @@ public class MainActivity extends Activity {
     private final Runnable actualizarNoche = new Runnable() {
         @Override
         public void run() {
-            int h = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
-            boolean esNoche = h >= NOCHE_DESDE || h < NOCHE_HASTA;
-            if (modoNoche == null || modoNoche != esNoche) {
-                modoNoche = esNoche;
-                cargarFondo(esNoche);
-                noche.animate().alpha(esNoche ? NOCHE_OSCURIDAD : 0f).setDuration(2000).start();
-                mercado.setVisibility(esNoche || !MOSTRAR_MERCADO ? View.GONE : View.VISIBLE);
-            }
+            revisarNoche();
             handler.postDelayed(this, 60 * 1000);
         }
     };
+
+    private void revisarNoche() {
+        Calendar c = Calendar.getInstance();
+        int ahora = c.get(Calendar.HOUR_OF_DAY) * 60 + c.get(Calendar.MINUTE);
+        int amanecer = prefs.getInt("amanecer", NOCHE_HASTA * 60);
+        int atardecer = prefs.getInt("atardecer", NOCHE_DESDE * 60);
+        boolean esNoche = ahora >= atardecer || ahora < amanecer;
+        if (modoNoche == null || modoNoche != esNoche) {
+            modoNoche = esNoche;
+            cargarFondo(esNoche);
+            noche.animate().alpha(esNoche ? NOCHE_OSCURIDAD : 0f).setDuration(2000).start();
+            mercado.setVisibility(esNoche || !MOSTRAR_MERCADO ? View.GONE : View.VISIBLE);
+        }
+    }
+
+    private static int minutosDelDia(String fechaHora) {
+        String hhmm = fechaHora.substring(fechaHora.indexOf('T') + 1);
+        return Integer.parseInt(hhmm.substring(0, 2)) * 60 + Integer.parseInt(hhmm.substring(3, 5));
+    }
 
     // ---------------- Cotizaciones (Yahoo Finance) ----------------
 
@@ -519,7 +691,7 @@ public class MainActivity extends Activity {
         return c;
     }
 
-    private static String bajarTexto(String url) throws Exception {
+    static String bajarTexto(String url) throws Exception {
         HttpURLConnection c = conectar(url);
         try (InputStream in = c.getInputStream()) {
             ByteArrayOutputStream out = new ByteArrayOutputStream();

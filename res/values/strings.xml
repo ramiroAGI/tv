@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="vigia_nombre">Inicio: botón Inicio</string>
+    <string name="vigia_descripcion">Hace que el botón Inicio del control abra esta pantalla en lugar de la de Google. Solo detecta cuándo aparece la pantalla de inicio original; no lee nada de lo que ves en otras apps. Para volver a la de Google, desactivalo acá.</string>
+</resources>

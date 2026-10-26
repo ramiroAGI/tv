@@ -35,4 +35,11 @@ if [ ! -f firma.jks ]; then
 fi
 "$BT/apksigner.bat" sign --ks firma.jks --ks-pass pass:inicio123 --out salida/Inicio.apk obj/alineado.apk
 
+# Dejar listo lo que se publica en GitHub Pages: el instalador y el aviso de versión para la tele
+cp salida/Inicio.apk i.apk
+CODIGO=$(grep -o 'android:versionCode="[0-9]*"' AndroidManifest.xml | grep -o '[0-9]*')
+NOMBRE=$(grep -o 'android:versionName="[^"]*"' AndroidManifest.xml | cut -d'"' -f2)
+printf '{"versionCode": %s, "versionName": "%s", "apk": "https://ramiroagi.github.io/tv/i.apk"}\n' "$CODIGO" "$NOMBRE" > version.json
+
 ls -la salida/Inicio.apk
+cat version.json
