@@ -118,9 +118,11 @@ public class MainActivity extends Activity {
         fila1 = findViewById(R.id.fila1);
         fila2 = findViewById(R.id.fila2);
 
+        findViewById(R.id.mar).setOnClickListener(v -> startActivity(new Intent(this, ModoMar.class)
+                .putExtra(ModoMar.EXTRA_NOCHE, Boolean.TRUE.equals(modoNoche))));
         findViewById(R.id.todas).setOnClickListener(v -> mostrarTodasLasApps());
         findViewById(R.id.ajustes).setOnClickListener(v -> abrirAjustes());
-        for (int id : new int[]{R.id.todas, R.id.ajustes}) {
+        for (int id : new int[]{R.id.mar, R.id.todas, R.id.ajustes}) {
             findViewById(id).setOnFocusChangeListener((v, foco) -> v.setAlpha(foco ? 1f : 0.6f));
         }
 

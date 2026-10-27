@@ -7,3 +7,4 @@ Instalar en la tele con la app Downloader: `ramiroagi.github.io/tv/i.apk`
 Compilar: `bash build.sh` (deja el instalador en `salida/Inicio.apk`).
 
 Fotos: Cape Otway (Dietmar Rabich, CC BY-SA 4.0) y Hong Kong de noche (Alex Wong, CC0), vía Wikimedia Commons.
+Videos del Modo mar (se bajan en la tele la primera vez): Curonian Spit (Alexander Grebenkov, CC BY 3.0) y Kalaloch Beach (Joe Mabel, CC BY-SA 4.0), vía Wikimedia Commons.
