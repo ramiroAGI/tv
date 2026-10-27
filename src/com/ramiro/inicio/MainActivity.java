@@ -13,6 +13,7 @@ import android.graphics.Color;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.StateListDrawable;
+import android.media.AudioManager;
 import android.media.tv.TvContract;
 import android.media.tv.TvInputInfo;
 import android.media.tv.TvInputManager;
@@ -67,9 +68,16 @@ public class MainActivity extends Activity {
     static final int ESCONDER_BOTONES_SEGUNDOS = 30;
     static final int BOTONES_ASOMAN_DP = 30;
 
+    // Volumen nocturno: al volver al inicio de noche, si el volumen está por encima de esto, se baja
+    static final float VOLUMEN_NOCHE_MAXIMO = 0.35f; // fracción del máximo de la tele
+
+    // Aviso de lluvia: se mira hasta estas horas para adelante
+    static final int LLUVIA_HORAS = 12;
+    static final int LLUVIA_PROBABILIDAD_MINIMA = 50;
+
     // Cotizaciones: solo de día y de lunes a viernes (de noche y el finde, a desconectar).
-    // false = no mostrarlas nunca
-    static final boolean MOSTRAR_MERCADO = true;
+    // false = no mostrarlas nunca (apagadas por ahora)
+    static final boolean MOSTRAR_MERCADO = false;
     static final String[][] COTIZACIONES = {
             // símbolo en Yahoo, nombre en pantalla, decimales
             {"QQQ", "QQQ", "2"},
@@ -95,7 +103,7 @@ public class MainActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private SharedPreferences prefs;
     private ImageView fondo;
-    private TextView temperatura, clima, mercado, credito;
+    private TextView temperatura, clima, lluvia, luna, mercado, credito;
     private View noche;
     private LinearLayout botonera, fila1, fila2;
     private boolean faltanApps;
@@ -111,6 +119,8 @@ public class MainActivity extends Activity {
         fondo = findViewById(R.id.fondo);
         temperatura = findViewById(R.id.temperatura);
         clima = findViewById(R.id.clima);
+        lluvia = findViewById(R.id.lluvia);
+        luna = findViewById(R.id.luna);
         mercado = findViewById(R.id.mercado);
         credito = findViewById(R.id.credito);
         noche = findViewById(R.id.noche);
@@ -118,8 +128,8 @@ public class MainActivity extends Activity {
         fila1 = findViewById(R.id.fila1);
         fila2 = findViewById(R.id.fila2);
 
-        findViewById(R.id.mar).setOnClickListener(v -> startActivity(new Intent(this, ModoMar.class)
-                .putExtra(ModoMar.EXTRA_NOCHE, Boolean.TRUE.equals(modoNoche))));
+        findViewById(R.id.mar).setOnClickListener(v -> startActivity(new Intent(this, Ambientes.class)
+                .putExtra(Ambientes.EXTRA_NOCHE, Boolean.TRUE.equals(modoNoche))));
         findViewById(R.id.todas).setOnClickListener(v -> mostrarTodasLasApps());
         findViewById(R.id.ajustes).setOnClickListener(v -> abrirAjustes());
         for (int id : new int[]{R.id.mar, R.id.todas, R.id.ajustes}) {
@@ -139,6 +149,8 @@ public class MainActivity extends Activity {
         // Si faltaba alguna app y la instalaron, rearmar los botones
         if (faltanApps) armarBotones();
         mostrarBotones(false);
+        revisarNoche();
+        if (Boolean.TRUE.equals(modoNoche)) bajarVolumenDeNoche();
         if (!preguntoVigia && !vigiaActiva() && !prefs.getBoolean("vigia_no_preguntar", false)) {
             preguntoVigia = true;
             new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
@@ -567,9 +579,10 @@ public class MainActivity extends Activity {
                 try {
                     JSONObject j = new JSONObject(bajarTexto(String.format(Locale.ROOT,
                             "https://api.open-meteo.com/v1/forecast?latitude=%.2f&longitude=%.2f"
-                                    + "&current=temperature_2m,weather_code,is_day"
+                                    + "&current=temperature_2m,weather_code,is_day,precipitation"
                                     + "&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset"
-                                    + "&timezone=auto&forecast_days=1", LATITUD, LONGITUD)));
+                                    + "&hourly=precipitation_probability,precipitation&forecast_hours=%d"
+                                    + "&timezone=auto&forecast_days=1", LATITUD, LONGITUD, LLUVIA_HORAS)));
                     JSONObject ahora = j.getJSONObject("current");
                     JSONObject dia = j.getJSONObject("daily");
                     // Vienen como "2026-10-26T19:43": guardar los minutos del día
@@ -582,9 +595,15 @@ public class MainActivity extends Activity {
                     final String desc = describirClima(ahora.getInt("weather_code"), ahora.getInt("is_day") == 1)
                             + "   ↑" + Math.round(dia.getJSONArray("temperature_2m_max").getDouble(0)) + "°"
                             + "  ↓" + Math.round(dia.getJSONArray("temperature_2m_min").getDouble(0)) + "°";
+                    int codigo = ahora.getInt("weather_code");
+                    final String avisoLluvia = avisoDeLluvia(
+                            ahora.optDouble("precipitation", 0) > 0 || (codigo >= 51 && codigo <= 67) || codigo >= 80,
+                            j.getJSONObject("hourly"));
                     runOnUiThread(() -> {
                         temperatura.setText(temp);
                         clima.setText(desc);
+                        lluvia.setText(avisoLluvia);
+                        lluvia.setVisibility(avisoLluvia == null ? View.GONE : View.VISIBLE);
                     });
                 } catch (Exception ignored) {
                     // Sin internet: queda el último dato
@@ -604,6 +623,71 @@ public class MainActivity extends Activity {
         if (codigo <= 77) return "❄ Nieve";
         if (codigo <= 82) return "🌧 Chaparrones";
         return "⛈ Tormenta";
+    }
+
+    /**
+     * "Lluvia desde las 18" o "Lluvia hasta las 21"; null si no llueve ni va a llover en las próximas horas.
+     * La primera hora del pronóstico es la actual.
+     */
+    private static String avisoDeLluvia(boolean llueveAhora, JSONObject horas) throws Exception {
+        JSONArray hora = horas.getJSONArray("time");
+        JSONArray prob = horas.getJSONArray("precipitation_probability");
+        JSONArray mm = horas.getJSONArray("precipitation");
+        int n = hora.length();
+        boolean[] llueve = new boolean[n];
+        for (int i = 0; i < n; i++) {
+            llueve[i] = !prob.isNull(i) && prob.getInt(i) >= LLUVIA_PROBABILIDAD_MINIMA
+                    && !mm.isNull(i) && mm.getDouble(i) >= 0.1;
+        }
+        if (llueveAhora) {
+            for (int i = 1; i < n; i++) {
+                if (!llueve[i]) return "🌧 Lluvia hasta " + aLas(hora.getString(i));
+            }
+            return "🌧 Lluvia por varias horas";
+        }
+        for (int i = 0; i < n; i++) {
+            if (llueve[i]) return i == 0 ? "🌧 Lluvia en un rato" : "🌧 Lluvia desde " + aLas(hora.getString(i));
+        }
+        return null;
+    }
+
+    /** "2026-10-26T18:00" → "las 18" (y "la 1", "la medianoche"). */
+    private static String aLas(String fechaHora) {
+        int h = minutosDelDia(fechaHora) / 60;
+        if (h == 0) return "la medianoche";
+        return (h == 1 ? "la " : "las ") + h;
+    }
+
+    // ---------------- Luna ----------------
+
+    /** Fase de la luna de hoy, dibujada como se ve desde el hemisferio sur. */
+    private static String faseLunar() {
+        // Días desde una luna nueva conocida (6/1/2000 18:14 UTC), en ciclos de 29,53 días
+        double dias = (System.currentTimeMillis() - 947182440000L) / 86400000.0;
+        double fase = (dias / 29.530588853) % 1.0;
+        if (fase < 0) fase += 1;
+        int i = (int) Math.floor(fase * 8 + 0.5) % 8;
+        String[] nombres = {"Luna nueva", "Luna creciente", "Cuarto creciente", "Gibosa creciente",
+                "Luna llena", "Gibosa menguante", "Cuarto menguante", "Luna menguante"};
+        // Los dibujos de luna están pensados para el norte: desde acá se ven al revés
+        String[] dibujosNorte = {"🌑", "🌒", "🌓", "🌔", "🌕", "🌖", "🌗", "🌘"};
+        return dibujosNorte[(8 - i) % 8] + " " + nombres[i];
+    }
+
+    // ---------------- Volumen nocturno ----------------
+
+    private void bajarVolumenDeNoche() {
+        AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
+        if (am == null || am.isVolumeFixed()) return;
+        int max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
+        int tope = Math.round(max * VOLUMEN_NOCHE_MAXIMO);
+        if (am.getStreamVolume(AudioManager.STREAM_MUSIC) > tope) {
+            try {
+                am.setStreamVolume(AudioManager.STREAM_MUSIC, tope, AudioManager.FLAG_SHOW_UI);
+            } catch (Exception ignored) {
+                // Algunas teles no dejan cambiar el volumen desde una app
+            }
+        }
     }
 
     // ---------------- Modo noche ----------------
@@ -628,6 +712,8 @@ public class MainActivity extends Activity {
             noche.animate().alpha(esNoche ? NOCHE_OSCURIDAD : 0f).setDuration(2000).start();
             mercado.setVisibility(esNoche || esFinde() || !MOSTRAR_MERCADO ? View.GONE : View.VISIBLE);
         }
+        luna.setVisibility(esNoche ? View.VISIBLE : View.GONE);
+        if (esNoche) luna.setText(faseLunar());
     }
 
     /** Sábado y domingo los mercados están cerrados: los números serían los del viernes. */

@@ -86,6 +86,30 @@
                     android:shadowColor="#80000000"
                     android:shadowRadius="6" />
 
+                <!-- Aparece solo si va a llover -->
+                <TextView
+                    android:id="@+id/lluvia"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:visibility="gone"
+                    android:textColor="#DDFFFFFF"
+                    android:textSize="14sp"
+                    android:shadowColor="#80000000"
+                    android:shadowRadius="6" />
+
+                <!-- Aparece solo de noche -->
+                <TextView
+                    android:id="@+id/luna"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:visibility="gone"
+                    android:textColor="#DDFFFFFF"
+                    android:textSize="14sp"
+                    android:shadowColor="#80000000"
+                    android:shadowRadius="6" />
+
                 <TextView
                     android:id="@+id/mercado"
                     android:layout_width="wrap_content"
@@ -107,7 +131,7 @@
                     <TextView
                         android:id="@+id/mar"
                         style="@style/Pastilla"
-                        android:text="Modo mar" />
+                        android:text="Ambientes" />
 
                     <TextView
                         android:id="@+id/todas"

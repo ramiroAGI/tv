@@ -5,6 +5,7 @@ import android.accessibilityservice.AccessibilityServiceInfo;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.os.Build;
 import android.view.accessibility.AccessibilityEvent;
 
 /**
@@ -14,11 +15,25 @@ import android.view.accessibility.AccessibilityEvent;
  */
 public class Vigia extends AccessibilityService {
 
+    private static Vigia activa;
     private String inicioOriginalPaquete;
     private String inicioOriginalClase;
 
+    /** Intenta pasar la tele a reposo (lo usa el temporizador de Ambientes). Devuelve si pudo. */
+    static boolean dormir() {
+        if (activa == null || Build.VERSION.SDK_INT < 28) return false;
+        return activa.performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN);
+    }
+
+    @Override
+    public void onDestroy() {
+        activa = null;
+        super.onDestroy();
+    }
+
     @Override
     protected void onServiceConnected() {
+        activa = this;
         Intent home = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME);
         PackageManager pm = getPackageManager();
         // Primero la que la tele tiene elegida como inicio; si no, la de mayor prioridad que no seamos nosotros
