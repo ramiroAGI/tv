@@ -67,7 +67,8 @@ public class MainActivity extends Activity {
     static final int ESCONDER_BOTONES_SEGUNDOS = 30;
     static final int BOTONES_ASOMAN_DP = 30;
 
-    // Cotizaciones (de día; de noche se ocultan para desconectar). false = no mostrarlas nunca
+    // Cotizaciones: solo de día y de lunes a viernes (de noche y el finde, a desconectar).
+    // false = no mostrarlas nunca
     static final boolean MOSTRAR_MERCADO = true;
     static final String[][] COTIZACIONES = {
             // símbolo en Yahoo, nombre en pantalla, decimales
@@ -623,8 +624,14 @@ public class MainActivity extends Activity {
             modoNoche = esNoche;
             cargarFondo(esNoche);
             noche.animate().alpha(esNoche ? NOCHE_OSCURIDAD : 0f).setDuration(2000).start();
-            mercado.setVisibility(esNoche || !MOSTRAR_MERCADO ? View.GONE : View.VISIBLE);
+            mercado.setVisibility(esNoche || esFinde() || !MOSTRAR_MERCADO ? View.GONE : View.VISIBLE);
         }
+    }
+
+    /** Sábado y domingo los mercados están cerrados: los números serían los del viernes. */
+    private static boolean esFinde() {
+        int d = Calendar.getInstance().get(Calendar.DAY_OF_WEEK);
+        return d == Calendar.SATURDAY || d == Calendar.SUNDAY;
     }
 
     private static int minutosDelDia(String fechaHora) {
@@ -637,7 +644,7 @@ public class MainActivity extends Activity {
     private final Runnable actualizarMercado = new Runnable() {
         @Override
         public void run() {
-            if (!Boolean.TRUE.equals(modoNoche)) {
+            if (!Boolean.TRUE.equals(modoNoche) && !esFinde()) {
                 new Thread(() -> {
                     final SpannableStringBuilder txt = new SpannableStringBuilder();
                     for (String[] c : COTIZACIONES) {
